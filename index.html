@@ -90,6 +90,23 @@
             z-index: 100;
             display: none;
         }
+        .motion-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 100;
+            font-family: inherit;
+            transition: background-color 0.3s;
+        }
+        .motion-btn:hover {
+            background-color: rgba(50, 50, 50, 0.9);
+        }
     </style>
 </head>
 <body>
@@ -102,11 +119,14 @@
         </svg>
     </a>
     
+    <button id="motion-btn" class="motion-btn">Enable Motion Controls</button>
+    
     <div id="info-panel" class="info-panel">
         <button id="minimize-btn" class="minimize-btn">×</button>
         <h3>Soft Body Frog Animation</h3>
         <p>A JavaScript port of the Soft Body Frog procedural animation.</p>
         <p>Drag/click on the frog to interact with it!</p>
+        <p>Try tilting your device to see the frog respond to gravity!</p>
         <p><strong>Based on:</strong></p>
         <ul>
             <li>Original creator: <a href="https://www.youtube.com/@argonautcode" target="_blank">@argonautcode</a></li>
@@ -129,6 +149,8 @@
         let frog;
         let mouseX = 0, mouseY = 0;
         let mousePressed = false;
+        let useDeviceMotion = false;
+        let gravitySensor = { x: 0, y: 1 }; // Default gravity is downward
 
         // Utility functions
         function constrain(value, min, max) {
@@ -283,7 +305,7 @@
             }
 
             applyGravity() {
-                this.pos.add(0, 1);
+                this.pos.add(gravitySensor.x, gravitySensor.y);
             }
 
             accumulateDisplacement(offset) {
@@ -420,7 +442,7 @@
             }
 
             applyGravity() {
-                this.pos.add(0, 1);
+                this.pos.add(gravitySensor.x, gravitySensor.y);
             }
 
             keepInBounds() {
@@ -945,6 +967,34 @@
                 mousePressed = false;
             });
             
+            // Add touch event listeners for mobile
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault(); // Prevent scrolling
+                mousePressed = true;
+                if (e.touches.length > 0) {
+                    const touch = e.touches[0];
+                    mouseX = touch.clientX;
+                    mouseY = touch.clientY;
+                }
+            });
+            
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault(); // Prevent scrolling
+                if (e.touches.length > 0) {
+                    const touch = e.touches[0];
+                    mouseX = touch.clientX;
+                    mouseY = touch.clientY;
+                }
+            });
+            
+            canvas.addEventListener('touchend', () => {
+                mousePressed = false;
+            });
+            
+            canvas.addEventListener('touchcancel', () => {
+                mousePressed = false;
+            });
+            
             // Handle window resize
             window.addEventListener('resize', () => {
                 canvas.width = window.innerWidth;
@@ -952,8 +1002,92 @@
                 frog = new Frog(new Vector2(canvas.width / 2, canvas.height - 400));
             });
             
+            // Add motion toggle button event listener
+            document.getElementById('motion-btn').addEventListener('click', toggleDeviceMotion);
+            
             // Start animation loop
             requestAnimationFrame(animate);
+        }
+
+        // Device motion functions
+        function requestDeviceMotionPermission() {
+            if (typeof DeviceMotionEvent !== 'undefined' && 
+                typeof DeviceMotionEvent.requestPermission === 'function') {
+                // iOS 13+ requires explicit permission
+                DeviceMotionEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            enableDeviceMotion();
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                // Other devices don't need permission
+                enableDeviceMotion();
+            }
+        }
+
+        function enableDeviceMotion() {
+            useDeviceMotion = true;
+            window.addEventListener('deviceorientation', handleOrientation);
+            window.addEventListener('devicemotion', handleMotion);
+            
+            // Update UI
+            const motionBtn = document.getElementById('motion-btn');
+            motionBtn.innerText = 'Disable Motion Controls';
+        }
+
+        function disableDeviceMotion() {
+            useDeviceMotion = false;
+            window.removeEventListener('deviceorientation', handleOrientation);
+            window.removeEventListener('devicemotion', handleMotion);
+            
+            // Reset gravity to default (down)
+            gravitySensor = { x: 0, y: 1 };
+            
+            // Update UI
+            const motionBtn = document.getElementById('motion-btn');
+            motionBtn.innerText = 'Enable Motion Controls';
+        }
+
+        function toggleDeviceMotion() {
+            if (useDeviceMotion) {
+                disableDeviceMotion();
+            } else {
+                requestDeviceMotionPermission();
+            }
+        }
+
+        function handleOrientation(event) {
+            if (!useDeviceMotion) return;
+            
+            // Get orientation angles in degrees
+            const beta = event.beta;  // -180 to 180 (front-to-back tilt)
+            const gamma = event.gamma; // -90 to 90 (left-to-right tilt)
+            
+            // Convert to gravity vector with appropriate scaling
+            gravitySensor.x = Math.sin(gamma * Math.PI / 180) * 1.5;
+            gravitySensor.y = Math.sin(beta * Math.PI / 180) * 1.5;
+            
+            // Ensure minimum gravity for better physics
+            if (Math.abs(gravitySensor.y) < 0.3) gravitySensor.y = 0.3 * Math.sign(gravitySensor.y);
+        }
+
+        function handleMotion(event) {
+            if (!useDeviceMotion) return;
+            
+            // Get acceleration including gravity
+            const accel = event.accelerationIncludingGravity;
+            
+            // Use acceleration if available (fallback to orientation-based gravity)
+            if (accel && accel.x !== null && accel.y !== null) {
+                // Scale acceleration for better physics feel
+                gravitySensor.x = accel.x * 0.1;
+                gravitySensor.y = accel.y * 0.1;
+                
+                // Ensure minimum gravity
+                if (Math.abs(gravitySensor.y) < 0.3) gravitySensor.y = 0.3 * Math.sign(gravitySensor.y);
+            }
         }
 
         // Animation loop
@@ -1002,6 +1136,13 @@
                 infoPanel.addEventListener('mouseleave', function() {
                     infoPanel.style.opacity = '0.3';
                 });
+            }
+            
+            // Check if device has accelerometer/gyroscope capabilities
+            if (window.DeviceMotionEvent || window.DeviceOrientationEvent) {
+                document.getElementById('motion-btn').style.display = 'block';
+            } else {
+                document.getElementById('motion-btn').style.display = 'none';
             }
         });
     </script>
