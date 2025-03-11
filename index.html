@@ -151,6 +151,13 @@
         let mousePressed = false;
         let useDeviceMotion = false;
         let gravitySensor = { x: 0, y: 1 }; // Default gravity is downward
+        
+        // Eye animation variables
+        let leftEyeOpen = 1.0;  // 1.0 = fully open, 0.0 = closed
+        let rightEyeOpen = 1.0;
+        let blinkInProgress = false;
+        let lastBlinkTime = 0;
+        let nextBlinkDelay = 0;
 
         // Utility functions
         function constrain(value, min, max) {
@@ -623,36 +630,45 @@
                 ctx.strokeStyle = 'black';
                 ctx.fillStyle = 'rgb(240, 153, 91)';
                 
+                // Animated eyes - apply open factor to size
                 ctx.beginPath();
-                ctx.ellipse(-75, -10, 48/2, 48/2, 0, 0, TWO_PI);
+                ctx.ellipse(-75, -10, 48/2, 48/2 * leftEyeOpen, 0, 0, TWO_PI);
                 ctx.fill();
                 ctx.stroke();
                 
                 ctx.beginPath();
-                ctx.ellipse(75, -10, 48/2, 48/2, 0, 0, TWO_PI);
+                ctx.ellipse(75, -10, 48/2, 48/2 * rightEyeOpen, 0, 0, TWO_PI);
                 ctx.fill();
                 ctx.stroke();
 
-                // Pupils
-                ctx.fillStyle = 'black';
+                // Pupils - only show when eyes are open enough
+                if (leftEyeOpen > 0.5) {
+                    // Scale pupil height with eye openness
+                    const leftPupilHeight = 18/2 * Math.min(1, leftEyeOpen * 1.5);
+                    
+                    ctx.fillStyle = 'black';
+                    ctx.save();
+                    ctx.translate(-75, -10);
+                    ctx.rotate(-PI/24);
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, 32/2, leftPupilHeight, 0, 0, TWO_PI);
+                    ctx.fill();
+                    ctx.restore();
+                }
                 
-                // Left pupil
-                ctx.save();
-                ctx.translate(-75, -10);
-                ctx.rotate(-PI/24);
-                ctx.beginPath();
-                ctx.ellipse(0, 0, 32/2, 18/2, 0, 0, TWO_PI);
-                ctx.fill();
-                ctx.restore();
-                
-                // Right pupil
-                ctx.save();
-                ctx.translate(75, -10);
-                ctx.rotate(PI/24);
-                ctx.beginPath();
-                ctx.ellipse(0, 0, 32/2, 18/2, 0, 0, TWO_PI);
-                ctx.fill();
-                ctx.restore();
+                if (rightEyeOpen > 0.5) {
+                    // Scale pupil height with eye openness
+                    const rightPupilHeight = 18/2 * Math.min(1, rightEyeOpen * 1.5);
+                    
+                    ctx.fillStyle = 'black';
+                    ctx.save();
+                    ctx.translate(75, -10);
+                    ctx.rotate(PI/24);
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, 32/2, rightPupilHeight, 0, 0, TWO_PI);
+                    ctx.fill();
+                    ctx.restore();
+                }
 
                 // Chin
                 ctx.lineWidth = 7;
@@ -1096,12 +1112,108 @@
             ctx.fillStyle = 'rgb(40, 44, 52)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
+            // Update blinking animation
+            updateEyeAnimation();
+            
             // Update and display frog
             frog.update();
             frog.display();
             
             // Continue animation
             requestAnimationFrame(animate);
+        }
+        
+        // Handle eye blinking animation
+        function updateEyeAnimation() {
+            const currentTime = performance.now();
+            const timeSinceLastBlink = currentTime - lastBlinkTime;
+            
+            // Start a new blink if enough time has passed
+            if (!blinkInProgress && timeSinceLastBlink > nextBlinkDelay) {
+                blinkInProgress = true;
+                
+                // Decide if both eyes blink together or separately with a delay
+                const syncedBlink = Math.random() < 0.7; // 70% chance of synchronized blink
+                
+                if (syncedBlink) {
+                    // Synchronized blink
+                    animateEyeBlink(true, true, 0);
+                } else {
+                    // Staggered blink
+                    const leftFirst = Math.random() < 0.5;
+                    if (leftFirst) {
+                        animateEyeBlink(true, false, 0);
+                        setTimeout(() => animateEyeBlink(false, true, 0), Math.random() * 150 + 50);
+                    } else {
+                        animateEyeBlink(false, true, 0);
+                        setTimeout(() => animateEyeBlink(true, false, 0), Math.random() * 150 + 50);
+                    }
+                }
+                
+                // Set up next blink
+                lastBlinkTime = currentTime;
+                // Random delay between 2-7 seconds for the next blink
+                nextBlinkDelay = Math.random() * 5000 + 2000;
+                
+                // Sometimes add an extra rapid blink (like the frog is confused)
+                if (Math.random() < 0.2) { // 20% chance
+                    setTimeout(() => {
+                        animateEyeBlink(true, true, 0);
+                        setTimeout(() => {
+                            blinkInProgress = false;
+                        }, 300);
+                    }, 300);
+                } else {
+                    // Mark blink as complete after the animation finishes
+                    setTimeout(() => {
+                        blinkInProgress = false;
+                    }, 300);
+                }
+            }
+        }
+        
+        // Animate a single eye blink
+        function animateEyeBlink(blinkLeft, blinkRight, progress) {
+            // Blink animation duration in milliseconds
+            const blinkDuration = 300;
+            const step = 10; // ms per step
+            
+            // Ease-in-out curve for natural blinking
+            let easedProgress;
+            if (progress < 0.5) {
+                // Closing phase (ease-in)
+                easedProgress = 2 * progress * progress;
+            } else {
+                // Opening phase (ease-out)
+                const t = 2 * progress - 1;
+                easedProgress = 1 - (1 - t) * (1 - t) / 2;
+            }
+            
+            // Update eye openness
+            if (blinkLeft) {
+                // Map progress 0-1 to eye openness 1-0-1 (open-closed-open)
+                leftEyeOpen = progress < 0.5 ? 
+                    1 - 2 * easedProgress : // 1 to 0 (closing)
+                    (progress - 0.5) * 2;   // 0 to 1 (opening)
+            }
+            
+            if (blinkRight) {
+                // Map progress 0-1 to eye openness 1-0-1 (open-closed-open)
+                rightEyeOpen = progress < 0.5 ? 
+                    1 - 2 * easedProgress : // 1 to 0 (closing)
+                    (progress - 0.5) * 2;   // 0 to 1 (opening)
+            }
+            
+            // Continue animation if not complete
+            if (progress < 1) {
+                setTimeout(() => {
+                    animateEyeBlink(blinkLeft, blinkRight, progress + step/blinkDuration);
+                }, step);
+            } else {
+                // Ensure eyes are fully open when animation completes
+                if (blinkLeft) leftEyeOpen = 1;
+                if (blinkRight) rightEyeOpen = 1;
+            }
         }
 
         // Start the application when page loads
