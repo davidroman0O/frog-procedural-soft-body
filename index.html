@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frog Animation</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #282c34;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        // Constants
+        const PI = Math.PI;
+        const TWO_PI = Math.PI * 2;
+        const HALF_PI = Math.PI / 2;
+
+        // Global variables
+        let canvas, ctx;
+        let frog;
+        let mouseX = 0, mouseY = 0;
+        let mousePressed = false;
+
+        // Utility functions
+        function constrain(value, min, max) {
+            return Math.min(Math.max(value, min), max);
+        }
+
+        // Constrains the angle to be within a certain range of the anchor
+        function constrainAngle(angle, anchor, constraint) {
+            if (Math.abs(relativeAngleDiff(angle, anchor)) <= constraint) {
+                return simplifyAngle(angle);
+            }
+            if (relativeAngleDiff(angle, anchor) > constraint) {
+                return simplifyAngle(anchor - constraint);
+            }
+            return simplifyAngle(anchor + constraint);
+        }
+
+        // How many radians do you need to turn the angle to match the anchor?
+        function relativeAngleDiff(angle, anchor) {
+            angle = simplifyAngle(angle + PI - anchor);
+            anchor = PI;
+            return anchor - angle;
+        }
+
+        // Simplify the angle to be in the range [0, 2pi)
+        function simplifyAngle(angle) {
+            while (angle >= TWO_PI) {
+                angle -= TWO_PI;
+            }
+            while (angle < 0) {
+                angle += TWO_PI;
+            }
+            return angle;
+        }
+
+        // Vector2 class (equivalent to PVector in Processing)
+        class Vector2 {
+            constructor(x = 0, y = 0) {
+                this.x = x;
+                this.y = y;
+            }
+
+            copy() {
+                return new Vector2(this.x, this.y);
+            }
+
+            add(x, y) {
+                if (y === undefined) {
+                    // Vector was passed
+                    this.x += x.x;
+                    this.y += x.y;
+                } else {
+                    this.x += x;
+                    this.y += y;
+                }
+                return this;
+            }
+
+            sub(x, y) {
+                if (y === undefined) {
+                    // Vector was passed
+                    this.x -= x.x;
+                    this.y -= x.y;
+                } else {
+                    this.x -= x;
+                    this.y -= y;
+                }
+                return this;
+            }
+
+            mult(scalar) {
+                this.x *= scalar;
+                this.y *= scalar;
+                return this;
+            }
+
+            div(scalar) {
+                if (scalar !== 0) {
+                    this.x /= scalar;
+                    this.y /= scalar;
+                }
+                return this;
+            }
+
+            mag() {
+                return Math.sqrt(this.x * this.x + this.y * this.y);
+            }
+
+            setMag(magnitude) {
+                const currentMag = this.mag();
+                if (currentMag !== 0) {
+                    this.mult(magnitude / currentMag);
+                }
+                return this;
+            }
+
+            heading() {
+                return Math.atan2(this.y, this.x);
+            }
+
+            rotate(angle) {
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                const x = this.x * cos - this.y * sin;
+                const y = this.x * sin + this.y * cos;
+                this.x = x;
+                this.y = y;
+                return this;
+            }
+
+            // Static methods
+            static add(v1, v2) {
+                return new Vector2(v1.x + v2.x, v1.y + v2.y);
+            }
+
+            static sub(v1, v2) {
+                return new Vector2(v1.x - v2.x, v1.y - v2.y);
+            }
+
+            static dist(v1, v2) {
+                const dx = v2.x - v1.x;
+                const dy = v2.y - v1.y;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+
+            static fromAngle(angle) {
+                return new Vector2(Math.cos(angle), Math.sin(angle));
+            }
+
+            static lerp(v1, v2, t) {
+                return new Vector2(
+                    v1.x + (v2.x - v1.x) * t,
+                    v1.y + (v2.y - v1.y) * t
+                );
+            }
+        }
+
+        // BlobPoint class for the soft body simulation
+        class BlobPoint {
+            constructor(pos) {
+                this.pos = pos.copy();
+                this.ppos = pos.copy(); // previous pos
+                this.displacement = new Vector2(0, 0);
+                this.displacementWeight = 0;
+            }
+
+            verletIntegrate() {
+                const temp = this.pos.copy();
+                const vel = Vector2.sub(this.pos, this.ppos).mult(0.99); // Slightly dampen velocity
+                this.pos.add(vel);
+                this.ppos = temp;
+            }
+
+            applyGravity() {
+                this.pos.add(0, 1);
+            }
+
+            accumulateDisplacement(offset) {
+                this.displacement.add(offset);
+                this.displacementWeight += 1;
+            }
+
+            applyDisplacement() {
+                if (this.displacementWeight > 0) {
+                    this.displacement.div(this.displacementWeight);
+                    this.pos.add(this.displacement);
+                    this.displacement = new Vector2(0, 0);
+                    this.displacementWeight = 0;
+                }
+            }
+
+            keepInBounds() {
+                this.pos.x = constrain(this.pos.x, 0, canvas.width);
+                this.pos.y = constrain(this.pos.y, 0, canvas.height);
+            }
+
+            collideWithMouse() {
+                const mouse = new Vector2(mouseX, mouseY);
+                if (mousePressed && Vector2.dist(this.pos, mouse) < 100) {
+                    const diff = Vector2.sub(this.pos, mouse).setMag(100);
+                    this.pos = Vector2.add(mouse, diff);
+                }
+            }
+        }
+
+        // Blob class for the frog's body
+        class Blob {
+            constructor(origin, numPoints, radius, puffiness) {
+                this.radius = radius;
+                this.area = radius * radius * PI * puffiness;
+                this.circumference = radius * TWO_PI;
+                this.chordLength = this.circumference / numPoints;
+
+                this.points = [];
+                for (let i = 0; i < numPoints; i++) {
+                    const offset = new Vector2(
+                        Math.cos(TWO_PI * i / numPoints - HALF_PI) * radius,
+                        Math.sin(TWO_PI * i / numPoints - HALF_PI) * radius
+                    );
+                    this.points.push(new BlobPoint(Vector2.add(origin, offset)));
+                }
+            }
+
+            update() {
+                // Compute one time step of physics with Verlet integration
+                for (const point of this.points) {
+                    point.verletIntegrate();
+                    point.applyGravity();
+                }
+
+                // Iterate multiple times to converge faster
+                for (let j = 0; j < 10; j++) {
+                    // Accumulate displacement caused by distance constraints
+                    for (let i = 0; i < this.points.length; i++) {
+                        const cur = this.points[i];
+                        const next = this.points[i === this.points.length - 1 ? 0 : i + 1];
+
+                        const diff = Vector2.sub(next.pos, cur.pos);
+                        // Only constrain points if they are too far from each other
+                        if (diff.mag() > this.chordLength) {
+                            // Both points equally pulled together to correct error
+                            const error = (diff.mag() - this.chordLength) / 2;
+                            const offset = diff.copy().setMag(error);
+                            const negOffset = offset.copy().mult(-1);
+                            cur.accumulateDisplacement(offset);
+                            next.accumulateDisplacement(negOffset);
+                        }
+                    }
+
+                    // Accumulate displacement caused by dilation (preventing squashing)
+                    const error = this.area - this.getArea();
+                    const offset = error / this.circumference;
+
+                    for (let i = 0; i < this.points.length; i++) {
+                        // Push along normal from secant line of neighbors
+                        const prev = this.points[i === 0 ? this.points.length - 1 : i - 1];
+                        const cur = this.points[i];
+                        const next = this.points[i === this.points.length - 1 ? 0 : i + 1];
+                        const secant = Vector2.sub(next.pos, prev.pos);
+                        const normal = secant.copy().rotate(-HALF_PI).setMag(offset);
+                        cur.accumulateDisplacement(normal);
+                    }
+
+                    // Apply all accumulated displacement
+                    for (const point of this.points) {
+                        point.applyDisplacement();
+                    }
+
+                    // Collision detection
+                    for (const point of this.points) {
+                        point.keepInBounds();
+                        point.collideWithMouse();
+                    }
+                }
+            }
+
+            // Get area using trapezoid method
+            getArea() {
+                let area = 0;
+                for (let i = 0; i < this.points.length; i++) {
+                    const cur = this.points[i].pos;
+                    const next = this.points[i === this.points.length - 1 ? 0 : i + 1].pos;
+                    area += ((cur.x - next.x) * (cur.y + next.y) / 2);
+                }
+                return area;
+            }
+        }
+
+        // LimbPoint class for joints
+        class LimbPoint {
+            constructor(pos) {
+                this.pos = pos.copy();
+                this.ppos = pos.copy();
+                this.angle = 0;
+            }
+
+            verletIntegrate() {
+                const temp = this.pos.copy();
+                const vel = Vector2.sub(this.pos, this.ppos).mult(0.95);
+                this.pos.add(vel);
+                this.ppos = temp;
+            }
+
+            applyConstraint(anchor, normal, distance, angleRange, angleOffset) {
+                const anchorAngle = normal + angleOffset;
+                const curAngle = Vector2.sub(anchor, this.pos).heading();
+                this.angle = constrainAngle(curAngle, anchorAngle, angleRange);
+                this.pos = Vector2.sub(anchor, Vector2.fromAngle(this.angle).setMag(distance));
+            }
+
+            applyGravity() {
+                this.pos.add(0, 1);
+            }
+
+            keepInBounds() {
+                this.pos.x = constrain(this.pos.x, 0, canvas.width);
+                this.pos.y = constrain(this.pos.y, 0, canvas.height);
+            }
+        }
+
+        // Limb class for legs
+        class Limb {
+            constructor(origin, distance, elbowRange, elbowOffset, footRange, footOffset) {
+                this.distance = distance;
+                this.elbowRange = elbowRange;
+                this.elbowOffset = elbowOffset;
+                this.footRange = footRange;
+                this.footOffset = footOffset;
+                this.elbow = new LimbPoint(Vector2.add(origin, new Vector2(0, distance)));
+                this.foot = new LimbPoint(Vector2.add(this.elbow.pos, new Vector2(0, distance)));
+            }
+
+            resolve(anchor, normal) {
+                this.elbow.verletIntegrate();
+                this.elbow.applyGravity();
+                this.elbow.applyConstraint(anchor, normal, this.distance, this.elbowRange, this.elbowOffset);
+                this.elbow.keepInBounds();
+
+                this.foot.verletIntegrate();
+                this.foot.applyGravity();
+                this.foot.applyConstraint(this.elbow.pos, this.elbow.angle, this.distance, this.footRange, this.footOffset);
+                this.foot.keepInBounds();
+            }
+        }
+
+        // Frog class that combines all components
+        class Frog {
+            constructor(origin) {
+                this.blob = new Blob(origin, 16, 128, 1.5);
+                this.leftFrontLeg = new Limb(Vector2.sub(origin, new Vector2(80, 0)), 56, PI/4, PI/8, PI/5, -PI/4);
+                this.rightFrontLeg = new Limb(Vector2.sub(origin, new Vector2(-80, 0)), 56, PI/4, -PI/8, PI/5, PI/4);
+                this.leftHindLeg = new Limb(Vector2.sub(origin, new Vector2(100, 0)), 100, 1.9*PI/5, 2*PI/5, 2*PI/5, -2*PI/5);
+                this.rightHindLeg = new Limb(Vector2.sub(origin, new Vector2(-100, 0)), 100, 1.9*PI/5, -2*PI/5, 2*PI/5, 2*PI/5);
+            }
+
+            update() {
+                this.blob.update();
+
+                const leftFront = this.blob.points[12].pos;
+                const rightFront = this.blob.points[4].pos;
+                const leftFrontAnchor = Vector2.lerp(leftFront, rightFront, 0.25).add(new Vector2(0, 10));
+                const rightFrontAnchor = Vector2.lerp(leftFront, rightFront, 0.75).add(new Vector2(0, 10));
+                const midSecant = Vector2.sub(rightFront, leftFront).setMag(64);
+                const midNormal = midSecant.copy().rotate(-HALF_PI).heading();
+                const leftHindAnchor = Vector2.add(this.blob.points[11].pos, midSecant).add(new Vector2(0, 16));
+                const rightHindAnchor = Vector2.sub(this.blob.points[5].pos, midSecant).add(new Vector2(0, 16));
+
+                this.leftFrontLeg.resolve(leftFrontAnchor, midNormal);
+                this.rightFrontLeg.resolve(rightFrontAnchor, midNormal);
+
+                // Hack to make hind legs go back into position when approaching ground
+                if (canvas.height - this.leftHindLeg.foot.pos.y < 100) {
+                    this.leftHindLeg.elbow.pos.y -= 1.5;
+                    this.leftHindLeg.foot.pos.x += 0.5;
+                }
+                if (canvas.height - this.rightHindLeg.foot.pos.y < 100) {
+                    this.rightHindLeg.elbow.pos.y -= 1.5;
+                    this.rightHindLeg.foot.pos.x -= 0.5;
+                }
+
+                this.leftHindLeg.resolve(leftHindAnchor, midNormal);
+                this.rightHindLeg.resolve(rightHindAnchor, midNormal);
+            }
+
+            display() {
+                this.drawHindLegs();
+                this.drawBody();
+                this.drawHead();
+                this.drawFrontLegs();
+            }
+
+            drawCurve(points, close = false) {
+                // Draw a smooth curve through the points
+                if (points.length < 2) return;
+                
+                ctx.beginPath();
+                
+                // Create tension for the curve
+                const tension = 0.5;
+                
+                // Draw beginning
+                ctx.moveTo(points[0].x, points[0].y);
+                
+                // Use bezier curves to approximate cardinal spline
+                for (let i = 0; i < points.length - 1; i++) {
+                    const p0 = i > 0 ? points[i - 1] : points[0];
+                    const p1 = points[i];
+                    const p2 = points[i + 1];
+                    const p3 = i < points.length - 2 ? points[i + 2] : p2;
+                    
+                    // Calculate control points
+                    const cp1x = p1.x + (p2.x - p0.x) * tension / 3;
+                    const cp1y = p1.y + (p2.y - p0.y) * tension / 3;
+                    const cp2x = p2.x - (p3.x - p1.x) * tension / 3;
+                    const cp2y = p2.y - (p3.y - p1.y) * tension / 3;
+                    
+                    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+                }
+                
+                if (close) {
+                    ctx.closePath();
+                }
+            }
+
+            drawBody() {
+                const points = this.blob.points.map(p => p.pos);
+                
+                // Create smooth closing for the curve
+                const allPoints = [
+                    points[points.length - 2],
+                    points[points.length - 1],
+                    ...points,
+                    points[0],
+                    points[1]
+                ];
+                
+                ctx.lineWidth = 8;
+                ctx.strokeStyle = 'black';
+                ctx.fillStyle = 'rgb(85, 145, 127)';
+                
+                this.drawCurve(allPoints, true);
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            drawHead() {
+                const top = this.blob.points[0].pos;
+                const topNormal = Vector2.sub(
+                    this.blob.points[2].pos, 
+                    this.blob.points[this.blob.points.length - 2].pos
+                ).heading();
+
+                ctx.save();
+                ctx.translate(top.x, top.y);
+                ctx.rotate(topNormal);
+
+                // Head
+                ctx.beginPath();
+                ctx.arc(0, 75, 250/2, -PI, 0, false);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.ellipse(0, 75, 244/2, 219/2, 0, 0, TWO_PI);
+                ctx.fillStyle = 'rgb(85, 145, 127)';
+                ctx.fill();
+
+                // Eye socket thingies
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = 'black';
+                
+                ctx.beginPath();
+                ctx.arc(-75, -10, 75/2, -PI-PI/4.6, -PI/5.6, false);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.arc(75, -10, 75/2, -PI+PI/5.6, PI/4.6, false);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.ellipse(-75, -10, 70/2, 70/2, 0, 0, TWO_PI);
+                ctx.fillStyle = 'rgb(85, 145, 127)';
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.ellipse(75, -10, 70/2, 70/2, 0, 0, TWO_PI);
+                ctx.fill();
+
+                // Eyes
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = 'black';
+                ctx.fillStyle = 'rgb(240, 153, 91)';
+                
+                ctx.beginPath();
+                ctx.ellipse(-75, -10, 48/2, 48/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.ellipse(75, -10, 48/2, 48/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+
+                // Pupils
+                ctx.fillStyle = 'black';
+                
+                // Left pupil
+                ctx.save();
+                ctx.translate(-75, -10);
+                ctx.rotate(-PI/24);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 32/2, 18/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+                
+                // Right pupil
+                ctx.save();
+                ctx.translate(75, -10);
+                ctx.rotate(PI/24);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 32/2, 18/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+
+                // Chin
+                ctx.lineWidth = 7;
+                ctx.strokeStyle = 'black';
+                
+                ctx.beginPath();
+                ctx.arc(0, 80, 92/2, PI/8, PI-PI/8, false);
+                ctx.stroke();
+
+                // Mouth
+                ctx.lineWidth = 5;
+                ctx.beginPath();
+                ctx.moveTo(-90, 40);
+                ctx.bezierCurveTo(-45, 60, -35, 15, -10, 25);
+                ctx.bezierCurveTo(-5, 27, 5, 27, 10, 25);
+                ctx.bezierCurveTo(35, 15, 45, 60, 90, 40);
+                ctx.stroke();
+
+                // Nostrils
+                ctx.fillStyle = 'black';
+                
+                // Left nostril
+                ctx.save();
+                ctx.translate(-9, 5);
+                ctx.rotate(PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 2/2, 5/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+                
+                // Right nostril
+                ctx.save();
+                ctx.translate(9, 5);
+                ctx.rotate(-PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 2/2, 5/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+
+                ctx.restore();
+            }
+
+            drawFrontLegs() {
+                const left = this.blob.points[12].pos;
+                const right = this.blob.points[4].pos;
+                const leftAnchor = Vector2.lerp(left, right, 0.25).add(new Vector2(0, 10));
+                const rightAnchor = Vector2.lerp(left, right, 0.75).add(new Vector2(0, 10));
+                this.drawFrontLeg(leftAnchor, this.leftFrontLeg);
+                this.drawFrontLeg(rightAnchor, this.rightFrontLeg);
+            }
+
+            drawHindLegs() {
+                const left = this.blob.points[12].pos;
+                const right = this.blob.points[4].pos;
+                const midSecant = Vector2.sub(right, left).setMag(64);
+                const leftAnchor = Vector2.add(this.blob.points[11].pos, midSecant).add(new Vector2(0, 16));
+                const rightAnchor = Vector2.sub(this.blob.points[5].pos, midSecant).add(new Vector2(0, 16));
+                this.drawHindLeg(leftAnchor, this.leftHindLeg, false);
+                this.drawHindLeg(rightAnchor, this.rightHindLeg, true);
+            }
+
+            drawFrontLeg(anchor, limb) {
+                // Draw the outline
+                ctx.lineWidth = 48;
+                ctx.strokeStyle = 'black';
+                
+                const curvePoints = [
+                    anchor,
+                    anchor,
+                    limb.elbow.pos,
+                    limb.foot.pos,
+                    limb.foot.pos
+                ];
+                
+                this.drawCurve(curvePoints);
+                ctx.stroke();
+
+                // Draw the fill
+                ctx.lineWidth = 34;
+                ctx.strokeStyle = 'rgb(85, 145, 127)';
+                
+                this.drawCurve(curvePoints);
+                ctx.stroke();
+
+                // Draw toes
+                const footNormal = Vector2.sub(limb.elbow.pos, limb.foot.pos).heading() + HALF_PI;
+                ctx.lineWidth = 6;
+                ctx.strokeStyle = 'black';
+                ctx.fillStyle = 'rgb(85, 145, 127)';
+                
+                ctx.save();
+                ctx.translate(limb.foot.pos.x, limb.foot.pos.y);
+                
+                // First toe
+                ctx.save();
+                ctx.rotate(footNormal - PI/4);
+                ctx.beginPath();
+                ctx.ellipse(0, 16, 16/2, 55/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+                
+                // Second toe
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 28, 16/2, 55/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+                
+                // Third toe
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + 2*PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 28, 16/2, 55/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+                
+                // Fourth toe
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + 3*PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 16, 16/2, 55/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+                
+                // Hide overlaps
+                ctx.strokeStyle = 'transparent';
+                
+                // First overlap cover
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + 2*PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 28, 10/2, 49/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+                
+                // Second overlap cover
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 28, 10/2, 49/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+                
+                // Third overlap cover
+                ctx.save();
+                ctx.rotate(footNormal - PI/4);
+                ctx.beginPath();
+                ctx.ellipse(0, 16, 10/2, 49/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+                
+                ctx.restore();
+
+                // Hide limb-body connection
+                const shoulderNormal = Vector2.sub(anchor, limb.elbow.pos).heading();
+                ctx.fillStyle = 'rgb(85, 145, 127)';
+                
+                ctx.beginPath();
+                ctx.arc(anchor.x, anchor.y, 49/2, -HALF_PI+shoulderNormal, HALF_PI+shoulderNormal);
+                ctx.fill();
+
+                // Hide toe-foot connection
+                ctx.beginPath();
+                ctx.ellipse(limb.foot.pos.x, limb.foot.pos.y, 35/2, 35/2, 0, 0, TWO_PI);
+                ctx.fill();
+            }
+
+            drawHindLeg(anchor, limb, right) {
+                const offset = right ? -PI/8 : PI/8;
+                const footNormal = Vector2.sub(limb.elbow.pos, limb.foot.pos).heading() + HALF_PI + offset;
+                const footShift = Vector2.add(limb.foot.pos, Vector2.fromAngle(footNormal + HALF_PI).setMag(24));
+                
+                // Draw the outline
+                ctx.lineWidth = 48;
+                ctx.strokeStyle = 'black';
+                
+                const curvePoints = [
+                    anchor, 
+                    anchor, 
+                    limb.elbow.pos, 
+                    limb.foot.pos, 
+                    footShift, 
+                    footShift
+                ];
+                
+                this.drawCurve(curvePoints);
+                ctx.stroke();
+
+                // Draw the fill
+                ctx.lineWidth = 34;
+                ctx.strokeStyle = 'rgb(85, 145, 127)';
+                
+                this.drawCurve(curvePoints);
+                ctx.stroke();
+
+                // Draw toes
+                ctx.lineWidth = 6;
+                ctx.strokeStyle = 'black';
+                ctx.fillStyle = 'rgb(85, 145, 127)';
+                
+                ctx.save();
+                ctx.translate(footShift.x, footShift.y);
+                
+                // First toe
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + offset);
+                ctx.beginPath();
+                ctx.ellipse(0, 16, 16/2, 55/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+                
+                // Second toe
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + offset + PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 28, 16/2, 55/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+                
+                // Third toe
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + offset + 2*PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 28, 16/2, 55/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+                
+                // Fourth toe
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + offset + 3*PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 16, 16/2, 55/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+                
+                // Hide overlaps
+                ctx.strokeStyle = 'transparent';
+                
+                // First overlap cover
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + offset + 2*PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 28, 10/2, 49/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+                
+                // Second overlap cover
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + offset + PI/6);
+                ctx.beginPath();
+                ctx.ellipse(0, 28, 10/2, 49/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+                
+                // Third overlap cover
+                ctx.save();
+                ctx.rotate(footNormal - PI/4 + offset);
+                ctx.beginPath();
+                ctx.ellipse(0, 16, 10/2, 49/2, 0, 0, TWO_PI);
+                ctx.fill();
+                ctx.restore();
+                
+                ctx.restore();
+
+                // Hide limb-body connection
+                const shoulderNormal = Vector2.sub(anchor, limb.elbow.pos).heading();
+                ctx.fillStyle = 'rgb(85, 145, 127)';
+                
+                ctx.beginPath();
+                ctx.arc(anchor.x, anchor.y, 49/2, -HALF_PI+shoulderNormal, HALF_PI+shoulderNormal);
+                ctx.fill();
+
+                // Hide toe-foot connection
+                ctx.beginPath();
+                ctx.ellipse(footShift.x, footShift.y, 35/2, 35/2, 0, 0, TWO_PI);
+                ctx.fill();
+            }
+        }
+
+        // Initialize the application
+        function init() {
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+            
+            // Make canvas fullscreen
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            
+            // Create the frog
+            frog = new Frog(new Vector2(canvas.width / 2, canvas.height - 400));
+            
+            // Add mouse event listeners
+            canvas.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+            
+            canvas.addEventListener('mousedown', () => {
+                mousePressed = true;
+            });
+            
+            canvas.addEventListener('mouseup', () => {
+                mousePressed = false;
+            });
+            
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                frog = new Frog(new Vector2(canvas.width / 2, canvas.height - 400));
+            });
+            
+            // Start animation loop
+            requestAnimationFrame(animate);
+        }
+
+        // Animation loop
+        function animate() {
+            // Clear canvas
+            ctx.fillStyle = 'rgb(40, 44, 52)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Update and display frog
+            frog.update();
+            frog.display();
+            
+            // Continue animation
+            requestAnimationFrame(animate);
+        }
+
+        // Start the application when page loads
+        window.onload = init;
+    </script>
+</body>
+</html>
