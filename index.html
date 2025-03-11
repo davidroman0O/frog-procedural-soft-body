@@ -1107,11 +1107,20 @@
         // Start the application when page loads
         window.onload = init;
         
+        // Check if device is mobile or tablet
+        function isMobileDevice() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+            return mobileRegex.test(userAgent) || 
+                   (window.innerWidth <= 800 && window.innerHeight <= 900);
+        }
+        
         // Handle info panel minimizing/maximizing
         document.addEventListener('DOMContentLoaded', function() {
             const infoPanel = document.getElementById('info-panel');
             const minimizeBtn = document.getElementById('minimize-btn');
             const showInfoBtn = document.getElementById('show-info');
+            const motionBtn = document.getElementById('motion-btn');
             
             minimizeBtn.addEventListener('click', function() {
                 infoPanel.style.display = 'none';
@@ -1138,11 +1147,18 @@
                 });
             }
             
-            // Check if device has accelerometer/gyroscope capabilities
-            if (window.DeviceMotionEvent || window.DeviceOrientationEvent) {
-                document.getElementById('motion-btn').style.display = 'block';
+            // Only show motion controls on mobile devices
+            if (isMobileDevice() && (window.DeviceMotionEvent || window.DeviceOrientationEvent)) {
+                motionBtn.style.display = 'block';
             } else {
-                document.getElementById('motion-btn').style.display = 'none';
+                motionBtn.style.display = 'none';
+                
+                // Remove the tilt device hint from info panel on desktop
+                const tiltHint = Array.from(infoPanel.querySelectorAll('p')).find(p => 
+                    p.textContent.includes('tilting your device'));
+                if (tiltHint) {
+                    tiltHint.style.display = 'none';
+                }
             }
         });
     </script>
