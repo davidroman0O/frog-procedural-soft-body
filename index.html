@@ -107,10 +107,78 @@
         .motion-btn:hover {
             background-color: rgba(50, 50, 50, 0.9);
         }
+        
+        /* Splash screen styles */
+        .splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(40, 44, 52, 0.98);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 0.5s;
+        }
+        .splash-content {
+            max-width: 500px;
+            text-align: center;
+            padding: 30px;
+            background-color: rgba(0, 0, 0, 0.4);
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+        }
+        .splash-content h1 {
+            color: #8bd5ca;
+            font-size: 2.5rem;
+            margin-bottom: 15px;
+        }
+        .splash-content p {
+            color: white;
+            font-size: 1rem;
+            margin-bottom: 25px;
+            line-height: 1.5;
+        }
+        #start-button {
+            background-color: #61afef;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1.2rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+        #start-button:hover {
+            background-color: #c678dd;
+            transform: scale(1.05);
+        }
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
+    <div id="splash-screen" class="splash-screen">
+        <div class="splash-content">
+            <h1>Soft Body Frog</h1>
+            <p>A physics-based frog animation that responds to interaction and makes sounds!</p>
+            <button id="start-button">Start Animation</button>
+        </div>
+    </div>
+    
     <canvas id="canvas"></canvas>
+    <!-- Audio elements for frog sounds -->
+    <audio id="croak-sound" preload="auto" src="frog-ribbit.mp3"></audio>
+    <audio id="wednesday-sound" preload="auto" src="wednesday-my-dudes.mp3"></audio>
+    <audio id="scream-sound" preload="auto" src="aaaaah.mp3"></audio>
+    <!-- Silent audio for unlocking audio context -->
+    <audio id="silent-audio" preload="auto" src="data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjMyLjEwNAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAADQgD///////////////////////////////////////////8AAAA8TEFNRTMuMTAwAQAAAAAAAAAAABSAJAJAQgAAgAAAA0L2YLwxAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" type="audio/mp3"></audio>
+    <!-- Silent audio for unlocking audio context -->
+    
     <a href="https://github.com/davidroman0O/soft-body-frog" class="github-corner" aria-label="View on GitHub">
         <svg width="80" height="80" viewBox="0 0 250 250" aria-hidden="true">
             <path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path>
@@ -127,6 +195,8 @@
         <p>A JavaScript port of the Soft Body Frog procedural animation.</p>
         <p>Drag/click on the frog to interact with it!</p>
         <p>Try tilting your device to see the frog respond to gravity!</p>
+        <p>Listen for the occasional ribbit sounds!</p>
+        <p id="wednesday-text" style="display: none; font-weight: bold; color: #ffcc00;">It is Wednesday my dudes!</p>
         <p><strong>Based on:</strong></p>
         <ul>
             <li>Original creator: <a href="https://www.youtube.com/@argonautcode" target="_blank">@argonautcode</a></li>
@@ -134,6 +204,7 @@
             <li>Original code: <a href="https://github.com/argonautcode/soft-body-proc-anim" target="_blank">soft-body-proc-anim</a></li>
         </ul>
         <p><strong>JavaScript port:</strong> <a href="https://github.com/davidroman0O/soft-body-frog" target="_blank">davidroman0O/soft-body-frog</a></p>
+        <p><strong>Sound credit:</strong> <a href="https://freesound.org/" target="_blank">Freesound.org</a></p>
     </div>
     
     <div id="show-info" class="show-info">Show Info</div>
@@ -148,9 +219,34 @@
         let canvas, ctx;
         let frog;
         let mouseX = 0, mouseY = 0;
+        let prevMouseX = 0, prevMouseY = 0;
+        let mouseSpeed = 0;
         let mousePressed = false;
         let useDeviceMotion = false;
         let gravitySensor = { x: 0, y: 1 }; // Default gravity is downward
+        
+        // Animation timing and behavior variables - easy to adjust
+        let MIN_BLINK_DELAY = 2000;  // Minimum time between blinks (ms)
+        let MAX_BLINK_DELAY = 7000;  // Maximum time between blinks (ms)
+        let MIN_CROAK_DELAY = 8000;  // Minimum time between croaks (ms)
+        let MAX_CROAK_DELAY = 20000; // Maximum time between croaks (ms)
+        let CLICK_CROAK_CHANCE = 0.3; // Probability of croaking when clicked (0-1)
+        let DOUBLE_CROAK_CHANCE = 0.3; // Probability of a double-croak (0-1)
+        let MOUSE_SPEED_THRESHOLD = 80; // Speed needed to trigger scream on desktop (increased from 50)
+        let TOUCH_SPEED_THRESHOLD = 1200; // Speed needed to trigger scream on mobile (increased from 1000)
+        let FROG_MOVEMENT_THRESHOLD = 3; // Minimum actual frog movement to trigger scream
+        
+        // Wednesday mode controls - SET THESE FOR TESTING
+        let WEDNESDAY_ENABLED = true; // Enable Wednesday features
+        let WEDNESDAY_OVERRIDE = false; // Force Wednesday mode regardless of actual day
+        
+        // Scream controls
+        let SCREAM_ENABLED = true; // Enable scream on fast movement
+        let SCREAM_COOLDOWN = 2000; // Minimum time between screams (ms) (increased from 1000)
+        let lastScreamTime = 0; // Track when the last scream occurred
+        
+        // Debug flags
+        let DEBUG_AUDIO = true; // Log audio-related debugging info
         
         // Eye animation variables
         let leftEyeOpen = 1.0;  // 1.0 = fully open, 0.0 = closed
@@ -158,6 +254,21 @@
         let blinkInProgress = false;
         let lastBlinkTime = 0;
         let nextBlinkDelay = 0;
+        
+        // Croaking animation variables
+        let mouthOpenness = 0.0; // 0.0 = closed, 1.0 = fully open
+        let throatExpansion = 0.0; // 0.0 = normal, 1.0 = fully expanded
+        let croakInProgress = false;
+        let lastCroakTime = 0;
+        let nextCroakDelay = 0;
+        let croakSound; // Audio element for the croak sound
+        let wednesdaySound; // Audio element for Wednesday sound
+        let screamSound; // Audio element for the scream sound
+        let isWednesday = false; // Flag to check if it's Wednesday
+        
+        // Speech syncing variables
+        let speechKeyframes = []; // For mouth sync with speech audio
+        let currentSpeechKeyframe = 0;
 
         // Utility functions
         function constrain(value, min, max) {
@@ -670,22 +781,66 @@
                     ctx.restore();
                 }
 
-                // Chin
+                // Throat/Chin - animate bulging during croaking
                 ctx.lineWidth = 7;
                 ctx.strokeStyle = 'black';
                 
+                const throatBulgeY = 10 * throatExpansion;
+                const throatBulgeRadius = 92/2 * (1 + 0.2 * throatExpansion);
+                
                 ctx.beginPath();
-                ctx.arc(0, 80, 92/2, PI/8, PI-PI/8, false);
+                ctx.arc(0, 80 + throatBulgeY, throatBulgeRadius, PI/8, PI-PI/8, false);
                 ctx.stroke();
 
-                // Mouth
+                // Mouth - animate opening during croaking
                 ctx.lineWidth = 5;
                 ctx.beginPath();
+                
+                // Calculate control points for mouth animation
+                const mouthOpenY = 15 * mouthOpenness;
+                
                 ctx.moveTo(-90, 40);
-                ctx.bezierCurveTo(-45, 60, -35, 15, -10, 25);
-                ctx.bezierCurveTo(-5, 27, 5, 27, 10, 25);
-                ctx.bezierCurveTo(35, 15, 45, 60, 90, 40);
+                ctx.bezierCurveTo(
+                    -45, 60, 
+                    -35, 15 - mouthOpenY, // Top curve control point 1
+                    -10, 25 - mouthOpenY  // Top curve control point 2
+                );
+                ctx.bezierCurveTo(
+                    -5, 27 - mouthOpenY,  // Center top
+                    5, 27 - mouthOpenY,   // Center top
+                    10, 25 - mouthOpenY   // Top curve control point 3
+                );
+                ctx.bezierCurveTo(
+                    35, 15 - mouthOpenY,  // Top curve control point 4
+                    45, 60, 
+                    90, 40
+                );
                 ctx.stroke();
+                
+                // Add bottom lip/inside of mouth when open
+                if (mouthOpenness > 0.1) {
+                    ctx.beginPath();
+                    
+                    // Draw mouth interior with depth based on openness
+                    const mouthDepth = 8 * mouthOpenness;
+                    
+                    ctx.moveTo(-60, 40);
+                    ctx.bezierCurveTo(
+                        -30, 45 + mouthDepth, 
+                        -15, 30 + mouthDepth,
+                        0, 32 + mouthDepth
+                    );
+                    ctx.bezierCurveTo(
+                        15, 30 + mouthDepth,
+                        30, 45 + mouthDepth,
+                        60, 40
+                    );
+                    
+                    // Draw mouth interior
+                    ctx.fillStyle = `rgba(150, 30, 30, ${mouthOpenness * 0.8})`;
+                    ctx.fill();
+                    ctx.stroke();
+                }
 
                 // Nostrils
                 ctx.fillStyle = 'black';
@@ -966,17 +1121,65 @@
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             
+            // Initialize mouse position tracking
+            mouseX = canvas.width / 2;
+            mouseY = canvas.height / 2;
+            prevMouseX = mouseX;
+            prevMouseY = mouseY;
+            mouseSpeed = 0;
+            
             // Create the frog
             frog = new Frog(new Vector2(canvas.width / 2, canvas.height - 400));
             
+            // Load all sound elements
+            croakSound = document.getElementById('croak-sound');
+            wednesdaySound = document.getElementById('wednesday-sound');
+            screamSound = document.getElementById('scream-sound');
+            
+            // Set Wednesday mode based on override or actual day
+            if (WEDNESDAY_ENABLED) {
+                // Check if it's actually Wednesday or if override is enabled
+                const today = new Date().getDay();
+                isWednesday = WEDNESDAY_OVERRIDE || today === 3; // 3 is Wednesday (0 is Sunday)
+                
+                if (isWednesday && DEBUG_AUDIO) {
+                    console.log("Wednesday mode activated!");
+                }
+                
+                // Show Wednesday text if it's Wednesday
+                if (isWednesday) {
+                    document.getElementById('wednesday-text').style.display = 'block';
+                }
+            }
+            
+            // Generate speech keyframes for Wednesday mode
+            if (isWednesday) {
+                generateWednesdaySpeechKeyframes();
+            }
+            
             // Add mouse event listeners
             canvas.addEventListener('mousemove', (e) => {
+                // Calculate mouse speed
+                const dx = e.clientX - prevMouseX;
+                const dy = e.clientY - prevMouseY;
+                mouseSpeed = Math.sqrt(dx*dx + dy*dy);
+                
+                // Update positions
+                prevMouseX = mouseX;
+                prevMouseY = mouseY;
                 mouseX = e.clientX;
                 mouseY = e.clientY;
+                
+                // Check for fast movement and trigger scream
+                checkForScream(mouseSpeed, MOUSE_SPEED_THRESHOLD);
             });
             
             canvas.addEventListener('mousedown', () => {
                 mousePressed = true;
+                // Slight chance of croaking when clicked
+                if (Math.random() < CLICK_CROAK_CHANCE && !croakInProgress) {
+                    startCroaking();
+                }
             });
             
             canvas.addEventListener('mouseup', () => {
@@ -991,6 +1194,12 @@
                     const touch = e.touches[0];
                     mouseX = touch.clientX;
                     mouseY = touch.clientY;
+                    prevMouseX = mouseX;
+                    prevMouseY = mouseY;
+                }
+                // Slight chance of croaking when touched
+                if (Math.random() < CLICK_CROAK_CHANCE && !croakInProgress) {
+                    startCroaking();
                 }
             });
             
@@ -998,8 +1207,20 @@
                 e.preventDefault(); // Prevent scrolling
                 if (e.touches.length > 0) {
                     const touch = e.touches[0];
+                    
+                    // Calculate touch speed
+                    const dx = touch.clientX - prevMouseX;
+                    const dy = touch.clientY - prevMouseY;
+                    mouseSpeed = Math.sqrt(dx*dx + dy*dy);
+                    
+                    // Update positions
+                    prevMouseX = mouseX;
+                    prevMouseY = mouseY;
                     mouseX = touch.clientX;
                     mouseY = touch.clientY;
+                    
+                    // Check for fast movement and trigger scream with touch threshold
+                    checkForScream(mouseSpeed, TOUCH_SPEED_THRESHOLD);
                 }
             });
             
@@ -1021,8 +1242,83 @@
             // Add motion toggle button event listener
             document.getElementById('motion-btn').addEventListener('click', toggleDeviceMotion);
             
+            // Set up initial croak delay (between 5-15 seconds)
+            nextCroakDelay = Math.random() * 10000 + 5000;
+            
             // Start animation loop
             requestAnimationFrame(animate);
+        }
+        
+        // Function to unlock audio - can only be called after user interaction
+        function unlockAudio() {
+            // Play silent audio to unlock audio context
+            const silentAudio = document.getElementById('silent-audio');
+            
+            // Try to play all audio elements to unlock them
+            try {
+                silentAudio.play().catch(err => console.log('Silent audio unlock failed, but that\'s okay'));
+                croakSound.play().then(() => croakSound.pause()).catch(err => {});
+                wednesdaySound.play().then(() => wednesdaySound.pause()).catch(err => {});
+                screamSound.play().then(() => screamSound.pause()).catch(err => {});
+                
+                if (DEBUG_AUDIO) {
+                    console.log('Audio unlocked!');
+                }
+            } catch(e) {
+                console.log('Error unlocking audio:', e);
+            }
+        }
+
+        // Function to check if speed exceeds threshold and trigger scream
+        function checkForScream(speed, threshold) {
+            const currentTime = performance.now();
+            
+            // Calculate how much the frog is actually moving by measuring the
+            // average movement of several key points on the frog's body
+            let frogMovementAmount = 0;
+            if (frog && frog.blob && frog.blob.points) {
+                // Sample a few blob points and calculate their average movement
+                let totalMovement = 0;
+                let sampledPoints = 0;
+                
+                // Sample head, back, and legs areas (points 0, 4, 8, 12)
+                const keyPointIndices = [0, 4, 8, 12];
+                for (const index of keyPointIndices) {
+                    if (frog.blob.points[index]) {
+                        const point = frog.blob.points[index];
+                        const pointSpeed = Vector2.dist(point.pos, point.ppos);
+                        totalMovement += pointSpeed;
+                        sampledPoints++;
+                    }
+                }
+                
+                if (sampledPoints > 0) {
+                    frogMovementAmount = totalMovement / sampledPoints;
+                }
+            }
+            
+            // Only scream if:
+            // 1. Screaming is enabled
+            // 2. Speed exceeds threshold
+            // 3. The frog is actually moving significantly (not just the mouse)
+            // 4. We're not already croaking
+            // 5. We're past the cooldown period
+            if (SCREAM_ENABLED && 
+                speed > threshold && 
+                frogMovementAmount > FROG_MOVEMENT_THRESHOLD && // Require actual frog movement
+                !croakInProgress && 
+                currentTime - lastScreamTime > SCREAM_COOLDOWN) {
+                
+                // Play the scream
+                playScream();
+                
+                // Update last scream time for cooldown
+                lastScreamTime = currentTime;
+                
+                if (DEBUG_AUDIO) {
+                    console.log(`Triggered scream! Speed: ${speed.toFixed(2)}, Frog movement: ${frogMovementAmount.toFixed(2)}, Threshold: ${threshold}`);
+                }
+            }
         }
 
         // Device motion functions
@@ -1112,8 +1408,9 @@
             ctx.fillStyle = 'rgb(40, 44, 52)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Update blinking animation
+            // Update animations
             updateEyeAnimation();
+            updateCroakAnimation();
             
             // Update and display frog
             frog.update();
@@ -1152,8 +1449,8 @@
                 
                 // Set up next blink
                 lastBlinkTime = currentTime;
-                // Random delay between 2-7 seconds for the next blink
-                nextBlinkDelay = Math.random() * 5000 + 2000;
+                // Random delay between min and max blink delay
+                nextBlinkDelay = Math.random() * (MAX_BLINK_DELAY - MIN_BLINK_DELAY) + MIN_BLINK_DELAY;
                 
                 // Sometimes add an extra rapid blink (like the frog is confused)
                 if (Math.random() < 0.2) { // 20% chance
@@ -1215,9 +1512,441 @@
                 if (blinkRight) rightEyeOpen = 1;
             }
         }
+        
+        // Generate keyframes for Wednesday speech
+        function generateWednesdaySpeechKeyframes() {
+            // Approximate mouth shapes for "It is Wednesday my dudes"
+            // Format: [startTime, endTime, mouthOpenness, throatExpansion]
+            speechKeyframes = [
+                [0.1, 0.2, 0.4, 0.1],  // "I"
+                [0.3, 0.45, 0.3, 0.2],  // "t"
+                [0.5, 0.7, 0.6, 0.3],  // "is"
+                [0.8, 1.0, 0.7, 0.5],  // "Wed"
+                [1.0, 1.2, 0.5, 0.4],  // "nes"
+                [1.2, 1.4, 0.6, 0.3],  // "day"
+                [1.5, 1.7, 0.4, 0.2],  // "my"
+                [1.8, 2.3, 0.9, 0.8]   // "duuudes"
+            ];
+        }
+        
+        // Handle croaking animation and sound
+        function updateCroakAnimation() {
+            const currentTime = performance.now();
+            const timeSinceLastCroak = currentTime - lastCroakTime;
+            
+            // Start a new croak if enough time has passed
+            if (!croakInProgress && timeSinceLastCroak > nextCroakDelay) {
+                startCroaking();
+                
+                // Set up next croak with random delay between min and max
+                lastCroakTime = currentTime;
+                nextCroakDelay = Math.random() * (MAX_CROAK_DELAY - MIN_CROAK_DELAY) + MIN_CROAK_DELAY;
+            }
+        }
+        
+        // Start the croaking animation and sound
+        function startCroaking() {
+            croakInProgress = true;
+            
+            if (DEBUG_AUDIO) {
+                console.log("Starting to croak");
+                console.log("Is Wednesday mode?", isWednesday);
+            }
+            
+            // Play the appropriate sound based on day
+            if (isWednesday) {
+                if (DEBUG_AUDIO) console.log("Using Wednesday sound");
+                playWednesdaySound();
+            } else {
+                if (DEBUG_AUDIO) console.log("Using normal ribbit sound");
+                playRibbitSound();
+            }
+        }
+        
+        // Play regular ribbit sound with matching animation
+        function playRibbitSound() {
+            try {
+                // Reset sound to beginning if it's already playing
+                croakSound.currentTime = 0;
+                
+                // Play the sound immediately and get its duration
+                croakSound.play().then(() => {
+                    // Get actual audio duration
+                    const audioDuration = croakSound.duration;
+                    
+                    // Add listeners to sync with audio
+                    croakSound.ontimeupdate = updateRibbitAnimation;
+                    
+                    // Handle animation end
+                    croakSound.onended = () => {
+                        mouthOpenness = 0;
+                        throatExpansion = 0;
+                        croakInProgress = false;
+                        croakSound.ontimeupdate = null;
+                    };
+                    
+                }).catch(err => {
+                    console.log('Audio not allowed without user interaction');
+                    // If audio fails, fall back to timed animation
+                    animateRibbit(0);
+                });
+                
+            } catch (e) {
+                console.log('Error playing sound:', e);
+                // Fall back to timed animation
+                animateRibbit(0);
+                
+                // Set a timeout to end the animation
+                setTimeout(() => {
+                    croakInProgress = false;
+                }, 800);
+            }
+        }
+        
+        // Update mouth animation to match ribbit audio
+        function updateRibbitAnimation() {
+            const currentTime = croakSound.currentTime;
+            const duration = croakSound.duration;
+            
+            // Calculate a normalized position in the sound (0 to 1)
+            const progress = currentTime / duration;
+            
+            // These key points should be adjusted based on your specific ribbit sound file
+            if (progress < 0.1) {
+                // Initial mouth opening
+                mouthOpenness = progress * 10 * 0.8; // Ramp up to 80% open
+                throatExpansion = progress * 10 * 0.9; // Ramp up to 90% expanded
+            } 
+            else if (progress < 0.4) {
+                // Main ribbit sound - mouth fully open
+                mouthOpenness = 0.8;
+                throatExpansion = 0.9 + Math.sin(progress * 30) * 0.1; // Slight pulsing
+            }
+            else if (progress < 0.7) {
+                // Start closing
+                const closeProgress = (progress - 0.4) / 0.3; // 0 to 1
+                mouthOpenness = 0.8 * (1 - closeProgress);
+                throatExpansion = 0.9 * (1 - closeProgress * 0.5); // Throat closes more slowly
+            }
+            else {
+                // Final closing
+                const closeProgress = (progress - 0.7) / 0.3; // 0 to 1
+                mouthOpenness = 0.8 * 0.3 * (1 - closeProgress);
+                throatExpansion = 0.9 * 0.5 * (1 - closeProgress);
+            }
+            
+            // Apply easing for more natural movement
+            mouthOpenness = Math.sin(mouthOpenness * Math.PI/2);
+            throatExpansion = Math.sin(throatExpansion * Math.PI/2);
+        }
+        
+        // Play Wednesday sound with synced mouth animation
+        function playWednesdaySound() {
+            try {
+                // Reset and play Wednesday sound
+                wednesdaySound.currentTime = 0;
+                
+                // Set up animation to sync with audio
+                currentSpeechKeyframe = 0;
+                
+                // Play audio
+                wednesdaySound.play().then(() => {
+                    // Animation will be driven by audio timeupdate event
+                    animateWednesdaySpeech();
+                }).catch(err => {
+                    console.log('Audio not allowed without user interaction:', err);
+                    // If audio fails, end the animation
+                    croakInProgress = false;
+                });
+                
+                // Set up timeupdate listener to sync animation with audio
+                wednesdaySound.ontimeupdate = updateWednesdaySpeechAnimation;
+                
+                // Handle animation end
+                wednesdaySound.onended = () => {
+                    mouthOpenness = 0;
+                    throatExpansion = 0;
+                    croakInProgress = false;
+                    wednesdaySound.ontimeupdate = null;
+                };
+                
+            } catch (e) {
+                console.log('Error playing Wednesday sound:', e);
+                croakInProgress = false;
+            }
+        }
+        
+        // Play scream sound with matching animation 
+        function playScream() {
+            croakInProgress = true;
+            
+            try {
+                // Reset and play scream sound
+                screamSound.currentTime = 0;
+                
+                // Play the sound and set up animation
+                screamSound.play().then(() => {
+                    // Get actual audio duration
+                    const audioDuration = screamSound.duration;
+                    
+                    // Add listeners to sync with audio
+                    screamSound.ontimeupdate = updateScreamAnimation;
+                    
+                    // Handle animation end
+                    screamSound.onended = () => {
+                        mouthOpenness = 0;
+                        throatExpansion = 0;
+                        croakInProgress = false;
+                        screamSound.ontimeupdate = null;
+                        
+                        if (DEBUG_AUDIO) {
+                            console.log("Scream sound ended");
+                        }
+                    };
+                    
+                }).catch(err => {
+                    console.log('Audio not allowed without user interaction:', err);
+                    // If audio fails, fall back to timed animation
+                    animateScream(0);
+                });
+                
+            } catch (e) {
+                console.log('Error playing scream sound:', e);
+                // Fall back to timed animation
+                animateScream(0);
+                
+                // Set a timeout to end the animation
+                setTimeout(() => {
+                    croakInProgress = false;
+                }, 2500); // Longer duration to ensure sound completes
+            }
+        }
+        
+        // Update scream animation to match audio playback
+        function updateScreamAnimation() {
+            const currentTime = screamSound.currentTime;
+            const duration = screamSound.duration;
+            
+            // Calculate a normalized position in the sound (0 to 1)
+            const progress = currentTime / duration;
+            
+            // Based on typical scream sound pattern
+            if (progress < 0.05) {
+                // Quick opening phase
+                mouthOpenness = progress * 20; // Ramp up to fully open quickly
+                throatExpansion = progress * 20 * 1.2; // Expand throat even more
+            } 
+            else if (progress < 0.85) {
+                // Keep wide open for most of the scream
+                mouthOpenness = 1.0;
+                // Add wobble for effect
+                throatExpansion = 1.2 + Math.sin(progress * 50) * 0.15;
+            }
+            else {
+                // Only start closing near the very end
+                const closeProgress = (progress - 0.85) / 0.15; // 0 to 1
+                mouthOpenness = 1.0 * (1 - closeProgress);
+                throatExpansion = 1.2 * (1 - closeProgress);
+            }
+            
+            // Apply easing for more natural movement
+            mouthOpenness = Math.sin(mouthOpenness * Math.PI/2);
+            throatExpansion = Math.sin(throatExpansion * Math.PI/2);
+        }
+        
+        // Update mouth animation to match Wednesday speech audio position
+        function updateWednesdaySpeechAnimation() {
+            const currentTime = wednesdaySound.currentTime;
+            
+            // Find the appropriate keyframe for the current time
+            for (let i = 0; i < speechKeyframes.length; i++) {
+                const [startTime, endTime, mouthOpen, throatExpand] = speechKeyframes[i];
+                
+                if (currentTime >= startTime && currentTime <= endTime) {
+                    // We're in this keyframe
+                    const progress = (currentTime - startTime) / (endTime - startTime);
+                    
+                    // First half: opening mouth/throat
+                    // Second half: closing mouth/throat
+                    let openFactor;
+                    if (progress < 0.5) {
+                        openFactor = progress * 2; // 0 to 1
+                    } else {
+                        openFactor = 2 - (progress * 2); // 1 to 0
+                    }
+                    
+                    // Apply easing for natural movement
+                    openFactor = Math.sin(openFactor * Math.PI/2);
+                    
+                    // Set mouth and throat values
+                    mouthOpenness = mouthOpen * openFactor;
+                    throatExpansion = throatExpand * openFactor;
+                    
+                    return;
+                }
+            }
+            
+            // If we're not in any keyframe, keep mouth slightly open
+            mouthOpenness = 0.1;
+            throatExpansion = 0.1;
+        }
+        
+        // Start the Wednesday speech animation 
+        function animateWednesdaySpeech() {
+            // Initialize animation state
+            mouthOpenness = 0.1; // Start with slightly open mouth
+            throatExpansion = 0.1;
+            
+            // Make sure the first keyframe is ready
+            currentSpeechKeyframe = 0;
+            
+            // Add a slight initial mouth movement before speech begins
+            setTimeout(() => {
+                mouthOpenness = 0.2;
+                throatExpansion = 0.2;
+            }, 50);
+            
+            setTimeout(() => {
+                mouthOpenness = 0.1;
+                throatExpansion = 0.1;
+            }, 100);
+        }
+        
+        // Animate a normal ribbit at a specific progress point (0 to 1)
+        function animateRibbit(progress) {
+            // Total animation duration in milliseconds
+            const duration = 800;
+            const step = 10; // ms per step
+            
+            // Create a multi-phase animation for more natural croaking
+            let mouthCurve, throatCurve;
+            
+            if (progress < 0.2) {
+                // Opening phase
+                mouthCurve = progress * 5; // 0 to 1 (quickly)
+                throatCurve = progress * 5; // 0 to 1 (quickly)
+            } else if (progress < 0.5) {
+                // Hold open
+                mouthCurve = 1;
+                throatCurve = 1;
+            } else if (progress < 0.8) {
+                // Start closing
+                mouthCurve = 1 - ((progress - 0.5) * (1/0.3)); // 1 to 0
+                throatCurve = 1;
+            } else {
+                // Finish closing throat
+                mouthCurve = 0;
+                throatCurve = 1 - ((progress - 0.8) * (1/0.2)); // 1 to 0
+            }
+            
+            // Apply easing for more natural movement
+            mouthCurve = Math.sin(mouthCurve * Math.PI/2);
+            throatCurve = Math.sin(throatCurve * Math.PI/2);
+            
+            // Update animation values
+            mouthOpenness = mouthCurve * 0.8; // Maximum mouth openness for ribbit
+            throatExpansion = throatCurve;
+            
+            // Continue animation if not complete
+            if (progress < 1) {
+                setTimeout(() => {
+                    animateRibbit(progress + step/duration);
+                }, step);
+            } else {
+                // Reset values and mark as complete
+                mouthOpenness = 0;
+                throatExpansion = 0;
+                
+                // Sometimes do a double croak
+                if (Math.random() < DOUBLE_CROAK_CHANCE) {
+                    setTimeout(() => {
+                        animateRibbit(0);
+                        
+                        // Play sound again
+                        setTimeout(() => {
+                            try {
+                                croakSound.currentTime = 0;
+                                croakSound.play().catch(err => {});
+                            } catch (e) {}
+                        }, 150);
+                        
+                        // Mark croaking as complete after the second animation
+                        setTimeout(() => {
+                            croakInProgress = false;
+                        }, 800);
+                    }, 300); // Short pause between croaks
+                } else {
+                    // Mark croaking as complete
+                    croakInProgress = false;
+                }
+            }
+        }
+        
+        // Animate a scream - fallback if audio API fails
+        function animateScream(progress) {
+            // Total animation duration - longer to match most scream sounds
+            const duration = 2500; // 2.5 seconds
+            const step = 10; // ms per step
+            
+            // Create a sustained screaming animation
+            let mouthCurve, throatCurve;
+            
+            if (progress < 0.05) {
+                // Quick opening phase
+                mouthCurve = progress * 20; // 0 to 1 (very quickly)
+                throatCurve = progress * 20; // 0 to 1 (very quickly)
+            } else if (progress < 0.85) {
+                // Hold wide open for most of the animation
+                mouthCurve = 1;
+                throatCurve = 1;
+                
+                // Add some wobble for effect
+                const wobble = Math.sin(progress * 50) * 0.1;
+                mouthCurve += wobble;
+                throatCurve += wobble;
+            } else {
+                // Closing phase only at end
+                mouthCurve = 1 - ((progress - 0.85) / 0.15); // 1 to 0
+                throatCurve = 1 - ((progress - 0.85) / 0.15); // 1 to 0
+            }
+            
+            // Update animation values - make screaming extra wide
+            mouthOpenness = mouthCurve;
+            throatExpansion = throatCurve * 1.2; // Extra throat expansion for screaming
+            
+            // Continue animation if not complete
+            if (progress < 1) {
+                setTimeout(() => {
+                    animateScream(progress + step/duration);
+                }, step);
+            } else {
+                // Reset values and mark as complete
+                mouthOpenness = 0;
+                throatExpansion = 0;
+                croakInProgress = false;
+            }
+        }
 
         // Start the application when page loads
-        window.onload = init;
+        window.onload = function() {
+            // Set up the splash screen first
+            const splashScreen = document.getElementById('splash-screen');
+            const startButton = document.getElementById('start-button');
+            
+            // When the start button is clicked
+            startButton.addEventListener('click', function() {
+                // Unlock audio first
+                unlockAudio();
+                
+                // Hide splash screen with fade effect
+                splashScreen.classList.add('hidden');
+                
+                // Initialize the application after a short delay
+                setTimeout(function() {
+                    init();
+                }, 500);
+            });
+        };
         
         // Check if device is mobile or tablet
         function isMobileDevice() {
