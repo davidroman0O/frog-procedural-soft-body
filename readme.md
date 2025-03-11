@@ -4,5 +4,5 @@ After watching the video by [@argonautcode](https://www.youtube.com/@argonautcod
 
 It is well known at work that I love frogs, and everyone who knows me personally can confirm this as a fact.
 
-[It is probably wednesday](https://it-is-wednesday-h8b0jbgn2-davidromans-projects.vercel.app/)
+[It is probably wednesday](https://it-is-wednesday.vercel.app/)
 
