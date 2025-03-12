@@ -1,0 +1,24 @@
+{
+    "name": "Soft Body Frog Animation",
+    "short_name": "Frog Day",
+    "description": "Interactive soft body frog animation with Wednesday surprises",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#282c34",
+    "theme_color": "#8bd5ca",
+    "orientation": "any",
+    "icons": [
+        {
+        "src": "/android-chrome-192x192.png",
+        "sizes": "192x192",
+        "type": "image/png",
+        "purpose": "any maskable"
+        },
+        {
+        "src": "/android-chrome-512x512.png",
+        "sizes": "512x512",
+        "type": "image/png",
+        "purpose": "any maskable"
+        }
+    ]
+}
