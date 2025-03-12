@@ -204,6 +204,7 @@
             <li>Original code: <a href="https://github.com/argonautcode/soft-body-proc-anim" target="_blank">soft-body-proc-anim</a></li>
         </ul>
         <p><strong>JavaScript port:</strong> <a href="https://github.com/davidroman0O/soft-body-frog" target="_blank">davidroman0O/soft-body-frog</a></p>
+        <p><strong>Sound credit:</strong> <a href="https://freesound.org/" target="_blank">Freesound.org</a></p>
     </div>
     
     <div id="show-info" class="show-info">Show Info</div>
@@ -232,8 +233,8 @@
         let CLICK_CROAK_CHANCE = 0.3; // Probability of croaking when clicked (0-1)
         let DOUBLE_CROAK_CHANCE = 0.3; // Probability of a double-croak (0-1)
         let MOUSE_SPEED_THRESHOLD = 80; // Speed needed to trigger scream on desktop (increased from 50)
-        let TOUCH_SPEED_THRESHOLD = 1200; // Speed needed to trigger scream on mobile (increased from 1000)
-        let FROG_MOVEMENT_THRESHOLD = 3; // Minimum actual frog movement to trigger scream
+        let TOUCH_SPEED_THRESHOLD = 800; // Speed needed to trigger scream on mobile (reduced from 1200)
+        let FROG_MOVEMENT_THRESHOLD = 2; // Minimum actual frog movement to trigger scream (reduced from 3)
         
         // Wednesday mode controls - SET THESE FOR TESTING
         let WEDNESDAY_ENABLED = true; // Enable Wednesday features
@@ -1207,6 +1208,9 @@
                 if (e.touches.length > 0) {
                     const touch = e.touches[0];
                     
+                    // Make sure mousePressed is true during touch move
+                    mousePressed = true;
+                    
                     // Calculate touch speed
                     const dx = touch.clientX - prevMouseX;
                     const dy = touch.clientY - prevMouseY;
@@ -1223,7 +1227,13 @@
                 }
             });
             
-            canvas.addEventListener('touchend', () => {
+            canvas.addEventListener('touchend', (e) => {
+                // Important: This is when we can detect a "throw" action
+                // Check for high speed right before releasing touch
+                if (mouseSpeed > TOUCH_SPEED_THRESHOLD / 1.5) {
+                    checkForScream(mouseSpeed, TOUCH_SPEED_THRESHOLD / 1.5);
+                }
+                
                 mousePressed = false;
             });
             
