@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Frog Animation</title>
+    <link rel="icon" type="image/png" href="favicon.ico">
     <style>
         body {
             margin: 0;
@@ -204,7 +205,6 @@
             <li>Original code: <a href="https://github.com/argonautcode/soft-body-proc-anim" target="_blank">soft-body-proc-anim</a></li>
         </ul>
         <p><strong>JavaScript port:</strong> <a href="https://github.com/davidroman0O/soft-body-frog" target="_blank">davidroman0O/soft-body-frog</a></p>
-        <p><strong>Sound credit:</strong> <a href="https://freesound.org/" target="_blank">Freesound.org</a></p>
     </div>
     
     <div id="show-info" class="show-info">Show Info</div>
@@ -222,8 +222,24 @@
         let prevMouseX = 0, prevMouseY = 0;
         let mouseSpeed = 0;
         let mousePressed = false;
+        // Global variables for motion controls
         let useDeviceMotion = false;
         let gravitySensor = { x: 0, y: 1 }; // Default gravity is downward
+        let prevGravitySensor = { x: 0, y: 1 };
+        let gravityChangeSpeed = 0;
+        let lastGravityCheckTime = 0;
+        let GRAVITY_CHECK_INTERVAL = 100; // Check gravity changes every 100ms
+        let GRAVITY_CHANGE_THRESHOLD = 0.3; // Minimum change to trigger scream check
+        
+        // Global variables for touch tracking
+        let touchStartX = 0, touchStartY = 0;
+        let touchMoveX = 0, touchMoveY = 0;
+        let touchActive = false;
+        let touchDragDistance = 0;
+        let touchDragSpeed = 0;
+        let touchDragStartTime = 0;
+        let lastTouchMoveTime = 0;
+        let isMobile = false; // Will be set based on device detection
         
         // Animation timing and behavior variables - easy to adjust
         let MIN_BLINK_DELAY = 2000;  // Minimum time between blinks (ms)
@@ -1157,8 +1173,14 @@
                 generateWednesdaySpeechKeyframes();
             }
             
-            // Add mouse event listeners
+            // Detect if user is on mobile
+            isMobile = isMobileDevice();
+            
+            // Add mouse event listeners for desktop
             canvas.addEventListener('mousemove', (e) => {
+                // Only use mouse events if not on mobile
+                if (isMobile) return;
+                
                 // Calculate mouse speed
                 const dx = e.clientX - prevMouseX;
                 const dy = e.clientY - prevMouseY;
@@ -1171,11 +1193,19 @@
                 mouseY = e.clientY;
                 
                 // Check for fast movement and trigger scream
-                checkForScream(mouseSpeed, MOUSE_SPEED_THRESHOLD);
+                if (mousePressed) {
+                    checkForScreamDesktop(mouseSpeed);
+                }
             });
             
-            canvas.addEventListener('mousedown', () => {
+            canvas.addEventListener('mousedown', (e) => {
+                // Only use mouse events if not on mobile
+                if (isMobile) return;
+                
                 mousePressed = true;
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+                
                 // Slight chance of croaking when clicked
                 if (Math.random() < CLICK_CROAK_CHANCE && !croakInProgress) {
                     startCroaking();
@@ -1183,58 +1213,108 @@
             });
             
             canvas.addEventListener('mouseup', () => {
+                // Only use mouse events if not on mobile
+                if (isMobile) return;
+                
                 mousePressed = false;
             });
             
             // Add touch event listeners for mobile
             canvas.addEventListener('touchstart', (e) => {
                 e.preventDefault(); // Prevent scrolling
-                mousePressed = true;
+                
                 if (e.touches.length > 0) {
                     const touch = e.touches[0];
-                    mouseX = touch.clientX;
-                    mouseY = touch.clientY;
+                    
+                    // Record the start position and time
+                    touchStartX = touch.clientX;
+                    touchStartY = touch.clientY;
+                    touchMoveX = touchStartX;
+                    touchMoveY = touchStartY;
+                    touchDragStartTime = performance.now();
+                    touchActive = true;
+                    
+                    // Set mouse position for the frog physics
+                    mouseX = touchStartX;
+                    mouseY = touchStartY;
                     prevMouseX = mouseX;
                     prevMouseY = mouseY;
-                }
-                // Slight chance of croaking when touched
-                if (Math.random() < CLICK_CROAK_CHANCE && !croakInProgress) {
-                    startCroaking();
+                    mousePressed = true;
+                    
+                    // Reset tracking
+                    touchDragDistance = 0;
+                    touchDragSpeed = 0;
+                    
+                    // Slight chance of croaking when touched
+                    if (Math.random() < CLICK_CROAK_CHANCE && !croakInProgress) {
+                        startCroaking();
+                    }
                 }
             });
             
             canvas.addEventListener('touchmove', (e) => {
                 e.preventDefault(); // Prevent scrolling
-                if (e.touches.length > 0) {
+                
+                if (e.touches.length > 0 && touchActive) {
                     const touch = e.touches[0];
+                    const currentTime = performance.now();
                     
-                    // Make sure mousePressed is true during touch move
-                    mousePressed = true;
+                    // Calculate drag distance and speed
+                    const dx = touch.clientX - touchMoveX;
+                    const dy = touch.clientY - touchMoveY;
+                    const moveDistance = Math.sqrt(dx*dx + dy*dy);
                     
-                    // Calculate touch speed
-                    const dx = touch.clientX - prevMouseX;
-                    const dy = touch.clientY - prevMouseY;
-                    mouseSpeed = Math.sqrt(dx*dx + dy*dy);
+                    // Calculate instantaneous speed
+                    const timeDelta = currentTime - lastTouchMoveTime;
+                    if (timeDelta > 0) {
+                        touchDragSpeed = moveDistance / (timeDelta / 1000); // pixels per second
+                    }
                     
-                    // Update positions
+                    // Update total drag distance
+                    touchDragDistance += moveDistance;
+                    
+                    // Update positions for next frame
+                    touchMoveX = touch.clientX;
+                    touchMoveY = touch.clientY;
+                    lastTouchMoveTime = currentTime;
+                    
+                    // Update mouse position for the frog physics
                     prevMouseX = mouseX;
                     prevMouseY = mouseY;
-                    mouseX = touch.clientX;
-                    mouseY = touch.clientY;
+                    mouseX = touchMoveX;
+                    mouseY = touchMoveY;
+                    mousePressed = true;
                     
-                    // Check for fast movement and trigger scream with touch threshold
-                    checkForScream(mouseSpeed, TOUCH_SPEED_THRESHOLD);
+                    // Use adjusted speed for mobile
+                    mouseSpeed = touchDragSpeed / 15; // Scale down to match mouse scale
+                    
+                    // Check for fast movement to trigger scream
+                    checkForScreamMobile(touchDragSpeed);
                 }
             });
             
             canvas.addEventListener('touchend', (e) => {
-                // Important: This is when we can detect a "throw" action
-                // Check for high speed right before releasing touch
-                if (mouseSpeed > TOUCH_SPEED_THRESHOLD / 1.5) {
-                    checkForScream(mouseSpeed, TOUCH_SPEED_THRESHOLD / 1.5);
+                if (touchActive) {
+                    touchActive = false;
+                    mousePressed = false;
+                    
+                    // Calculate final throw speed and direction
+                    const touchDuration = performance.now() - touchDragStartTime;
+                    const throwSpeed = touchDragSpeed;
+                    
+                    if (DEBUG_AUDIO) {
+                        console.log(`Touch ended - Duration: ${touchDuration.toFixed(0)}ms, Speed: ${throwSpeed.toFixed(2)}px/s, Distance: ${touchDragDistance.toFixed(2)}px`);
+                    }
+                    
+                    // Special check for throw gesture on touchend
+                    // This is the most important part for mobile - detect a throw when finger is released
+                    if (throwSpeed > TOUCH_SPEED_THRESHOLD * TOUCH_THROW_SENSITIVITY && touchDragDistance > 50) {
+                        if (DEBUG_AUDIO) {
+                            console.log(`THROW DETECTED! Speed: ${throwSpeed.toFixed(2)}`);
+                        }
+                        checkForScreamMobile(throwSpeed, true);
+                    }
                 }
-                
-                mousePressed = false;
             });
             
             canvas.addEventListener('touchcancel', () => {
@@ -1278,12 +1358,80 @@
             }
         }
 
-        // Function to check if speed exceeds threshold and trigger scream
-        function checkForScream(speed, threshold) {
+        // Function to check for screams on desktop
+        function checkForScreamDesktop(mouseSpeed) {
             const currentTime = performance.now();
             
-            // Calculate how much the frog is actually moving by measuring the
-            // average movement of several key points on the frog's body
+            // Calculate frog movement
+            let frogMovementAmount = calculateFrogMovement();
+            
+            // Only scream if:
+            // 1. Screaming is enabled
+            // 2. Speed exceeds threshold
+            // 3. The frog is actually moving (not just the mouse)
+            // 4. We're not already croaking
+            // 5. We're past the cooldown period
+            if (SCREAM_ENABLED && 
+                mouseSpeed > MOUSE_SPEED_THRESHOLD && 
+                frogMovementAmount > FROG_MOVEMENT_THRESHOLD && 
+                !croakInProgress && 
+                currentTime - lastScreamTime > SCREAM_COOLDOWN) {
+                
+                // Play the scream
+                playScream();
+                
+                // Update last scream time for cooldown
+                lastScreamTime = currentTime;
+                
+                if (DEBUG_AUDIO) {
+                    console.log(`DESKTOP SCREAM! Speed: ${mouseSpeed.toFixed(2)}, Frog movement: ${frogMovementAmount.toFixed(2)}`);
+                }
+            }
+        }
+        
+        // Function to check for screams on mobile
+        function checkForScreamMobile(touchSpeed, isThrow = false) {
+            const currentTime = performance.now();
+            
+            // Calculate frog movement
+            let frogMovementAmount = calculateFrogMovement();
+            
+            // For mobile, we're more generous with the throw detection
+            const speedThreshold = isThrow ? 
+                TOUCH_SPEED_THRESHOLD : // Lower threshold for throws
+                TOUCH_SPEED_THRESHOLD * 2; // Higher threshold for general movement
+            
+            // Lower movement threshold for mobile
+            const movementThreshold = isThrow ? 
+                FROG_MOVEMENT_THRESHOLD / 1.5 : // Lower threshold for throws
+                FROG_MOVEMENT_THRESHOLD; // Normal threshold otherwise
+            
+            // Only scream if:
+            // 1. Screaming is enabled
+            // 2. Speed exceeds threshold
+            // 3. The frog is actually moving
+            // 4. We're not already croaking
+            // 5. We're past the cooldown period
+            if (SCREAM_ENABLED && 
+                touchSpeed > speedThreshold && 
+                frogMovementAmount > movementThreshold && 
+                !croakInProgress && 
+                currentTime - lastScreamTime > SCREAM_COOLDOWN) {
+                
+                // Play the scream
+                playScream();
+                
+                // Update last scream time for cooldown
+                lastScreamTime = currentTime;
+                
+                if (DEBUG_AUDIO) {
+                    console.log(`MOBILE ${isThrow ? 'THROW' : 'DRAG'} SCREAM! Speed: ${touchSpeed.toFixed(2)}, Frog movement: ${frogMovementAmount.toFixed(2)}`);
+                }
+            }
+        }
+        
+        // Calculate how much the frog is actually moving
+        function calculateFrogMovement() {
             let frogMovementAmount = 0;
             if (frog && frog.blob && frog.blob.points) {
                 // Sample a few blob points and calculate their average movement
@@ -1305,16 +1453,25 @@
                     frogMovementAmount = totalMovement / sampledPoints;
                 }
             }
+            return frogMovementAmount;
+        }
+        
+        // Add a function to check for motion-induced screams
+        function checkForScreamMotion() {
+            // Only check if motion controls are active and gravity changed recently
+            if (!useDeviceMotion || gravityChangeSpeed < GRAVITY_CHANGE_THRESHOLD) {
+                return;
+            }
             
-            // Only scream if:
-            // 1. Screaming is enabled
-            // 2. Speed exceeds threshold
-            // 3. The frog is actually moving significantly (not just the mouse)
-            // 4. We're not already croaking
-            // 5. We're past the cooldown period
+            const currentTime = performance.now();
+            
+            // Calculate frog movement
+            let frogMovementAmount = calculateFrogMovement();
+            
+            // Special handling for motion-induced movement
+            // The thresholds are lower because this is passive movement
             if (SCREAM_ENABLED && 
-                speed > threshold && 
-                frogMovementAmount > FROG_MOVEMENT_THRESHOLD && // Require actual frog movement
+                frogMovementAmount > FROG_MOVEMENT_THRESHOLD * 0.8 && 
                 !croakInProgress && 
                 currentTime - lastScreamTime > SCREAM_COOLDOWN) {
                 
@@ -1325,7 +1482,7 @@
                 lastScreamTime = currentTime;
                 
                 if (DEBUG_AUDIO) {
-                    console.log(`Triggered scream! Speed: ${speed.toFixed(2)}, Frog movement: ${frogMovementAmount.toFixed(2)}, Threshold: ${threshold}`);
+                    console.log(`MOTION SCREAM! Gravity change: ${gravityChangeSpeed.toFixed(2)}, Frog movement: ${frogMovementAmount.toFixed(2)}`);
                 }
             }
         }
@@ -1356,6 +1513,16 @@
             // Update UI
             const motionBtn = document.getElementById('motion-btn');
             motionBtn.innerText = 'Disable Motion Controls';
+            
+            // Reset tracked values
+            prevGravitySensor = {x: 0, y: 1};
+            gravitySensor = {x: 0, y: 1};
+            gravityChangeSpeed = 0;
+            lastGravityCheckTime = performance.now();
+            
+            if (DEBUG_AUDIO) {
+                console.log("Motion controls enabled");
+            }
         }
 
         function disableDeviceMotion() {
@@ -1382,6 +1549,10 @@
         function handleOrientation(event) {
             if (!useDeviceMotion) return;
             
+            // Save previous gravity values
+            prevGravitySensor.x = gravitySensor.x;
+            prevGravitySensor.y = gravitySensor.y;
+            
             // Get orientation angles in degrees
             const beta = event.beta;  // -180 to 180 (front-to-back tilt)
             const gamma = event.gamma; // -90 to 90 (left-to-right tilt)
@@ -1392,10 +1563,17 @@
             
             // Ensure minimum gravity for better physics
             if (Math.abs(gravitySensor.y) < 0.3) gravitySensor.y = 0.3 * Math.sign(gravitySensor.y);
+            
+            // Check for rapid gravity changes that might trigger a scream
+            checkGravityChanges();
         }
 
         function handleMotion(event) {
             if (!useDeviceMotion) return;
+            
+            // Save previous gravity values
+            prevGravitySensor.x = gravitySensor.x;
+            prevGravitySensor.y = gravitySensor.y;
             
             // Get acceleration including gravity
             const accel = event.accelerationIncludingGravity;
@@ -1409,6 +1587,32 @@
                 // Ensure minimum gravity
                 if (Math.abs(gravitySensor.y) < 0.3) gravitySensor.y = 0.3 * Math.sign(gravitySensor.y);
             }
+            
+            // Check for rapid gravity changes that might trigger a scream
+            checkGravityChanges();
+        }
+        
+        // Function to detect rapid changes in gravity and trigger screams
+        function checkGravityChanges() {
+            const currentTime = performance.now();
+            
+            // Only check periodically to avoid too frequent checks
+            if (currentTime - lastGravityCheckTime < GRAVITY_CHECK_INTERVAL) {
+                return;
+            }
+            
+            // Calculate how much gravity changed
+            const dx = gravitySensor.x - prevGravitySensor.x;
+            const dy = gravitySensor.y - prevGravitySensor.y;
+            const gravityChange = Math.sqrt(dx*dx + dy*dy);
+            
+            // Save the change speed for animation frame to use
+            gravityChangeSpeed = gravityChange / (GRAVITY_CHECK_INTERVAL / 1000);
+            
+            lastGravityCheckTime = currentTime;
+            
+            // If gravity changed rapidly, we'll check for scream in the next animation frame
+            // This is done in animate() to ensure we measure actual frog movement after gravity change
         }
 
         // Animation loop
@@ -1424,6 +1628,9 @@
             // Update and display frog
             frog.update();
             frog.display();
+            
+            // Check for motion-induced screams
+            checkForScreamMotion();
             
             // Continue animation
             requestAnimationFrame(animate);
@@ -2012,5 +2219,9 @@
             }
         });
     </script>
+    <script>
+        window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+    </script>
+    <script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>
