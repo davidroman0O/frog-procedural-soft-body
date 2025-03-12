@@ -1,4 +1,4 @@
-# Softbody Frog Procedural Animation
+# Frog Procedural Soft-Body
 
 After watching the video by [@argonautcode](https://www.youtube.com/@argonautcode) on [his video of soft-body procedural animation](https://www.youtube.com/watch?v=GXh0Vxg7AnQ), I decided to [clone his code](https://github.com/argonautcode/soft-body-proc-anim) using plain old JavaScript!
 
